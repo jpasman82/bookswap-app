@@ -12,6 +12,7 @@ const BookCard = ({ book, userId, sedeUser, isAdmin, onReserve, onOpenDetails, o
   
   const isWaitlisted = book.waitlist?.includes(userId);
   const isMyBook = book.heldBy === userId || book.reservedBy === userId;
+  const isOwnDonation = book.heldBy === book.donatedBy;
   
   const canReserve = book.status === 'available' && !isMyBook;
   const canWaitlist = book.status === 'reserved' && !isMyBook;
@@ -42,10 +43,13 @@ const BookCard = ({ book, userId, sedeUser, isAdmin, onReserve, onOpenDetails, o
             <h3 className="text-base font-bold text-gray-900 leading-tight mb-0.5 line-clamp-2">{book.title}</h3>
             <p className="text-xs text-gray-500 font-medium">{book.author}</p>
             
-            {book.status !== 'pending' && (
+            {book.status !== 'pending' && !isOwnDonation && (
               <p className={`text-[10px] font-bold mt-2 ${daysLeft < 0 ? 'text-red-500' : 'text-gray-400'}`}>
                 {daysLeft < 0 ? 'Devolución vencida' : `Faltan ${daysLeft} días para devolución`}
               </p>
+            )}
+            {book.status === 'available' && isOwnDonation && (
+               <p className="text-[10px] font-bold mt-2 text-green-600">✓ Listo para prestar</p>
             )}
           </div>
           
@@ -65,7 +69,6 @@ const BookCard = ({ book, userId, sedeUser, isAdmin, onReserve, onOpenDetails, o
 
       <div className="flex flex-col gap-2 pt-2 border-t border-gray-50">
         
-        {/* PANEL DE ADMINISTRADOR (Siempre visible para Admins) */}
         {isAdmin && (
           <div className="flex gap-2 w-full pb-2 border-b border-gray-50">
             <button 
@@ -91,7 +94,6 @@ const BookCard = ({ book, userId, sedeUser, isAdmin, onReserve, onOpenDetails, o
           </div>
         )}
 
-        {/* ACCIONES DEL USUARIO LECTOR */}
         <div className="flex gap-2 w-full">
           
           {book.status === 'pending' && !isAdmin && (

@@ -1,7 +1,7 @@
 import React from 'react';
-import { X, Headphones, User, ShieldCheck, ListPlus, Check } from 'lucide-react';
+import { X, Headphones, User, ShieldCheck, ListPlus, Check, History } from 'lucide-react';
 
-const BookDetailsModal = ({ book, userId, sedeUser, onClose, onReserve, onWaitlist, onRemoveWaitlist, disabled }) => {
+const BookDetailsModal = ({ book, userId, sedeUser, isAdmin, onClose, onReserve, onWaitlist, onRemoveWaitlist, disabled }) => {
   if (!book) return null;
 
   const assignedDate = book.assignedAt?.toDate() || book.createdAt?.toDate();
@@ -11,6 +11,7 @@ const BookDetailsModal = ({ book, userId, sedeUser, onClose, onReserve, onWaitli
 
   const isWaitlisted = book.waitlist?.includes(userId);
   const isMyBook = book.heldBy === userId || book.reservedBy === userId;
+  const isOwnDonation = book.heldBy === book.donatedBy;
   
   const canReserve = book.status === 'available' && !isMyBook;
   const canWaitlist = book.status === 'reserved' && !isMyBook;
@@ -103,9 +104,14 @@ const BookDetailsModal = ({ book, userId, sedeUser, onClose, onReserve, onWaitli
                 <p className={`text-xs font-bold uppercase ${book.status === 'available' ? 'text-green-600' : 'text-purple-900'}`}>
                   {book.status === 'available' ? 'Disponible' : 'Reservado'}
                 </p>
-                {book.status !== 'pending' && (
+                {book.status !== 'pending' && !isOwnDonation && (
                   <p className={`text-[9px] font-bold mt-1 ${daysLeft < 0 ? 'text-red-500' : 'text-gray-400'}`}>
                     {daysLeft < 0 ? 'Devolución vencida' : `Faltan ${daysLeft} días`}
+                  </p>
+                )}
+                {book.status === 'available' && isOwnDonation && (
+                  <p className={`text-[9px] font-bold mt-1 text-green-600`}>
+                    No tiene vencimiento
                   </p>
                 )}
               </div>
@@ -119,7 +125,7 @@ const BookDetailsModal = ({ book, userId, sedeUser, onClose, onReserve, onWaitli
           </div>
 
           {isMyBook && (
-            <div className="w-full py-5 bg-purple-50 rounded-2xl text-purple-900 font-black text-center text-sm border border-purple-100 uppercase tracking-widest">
+            <div className="w-full py-5 bg-purple-50 rounded-2xl text-purple-900 font-black text-center text-sm border border-purple-100 uppercase tracking-widest mb-6">
               LIBRO EN TU PODER O RESERVADO
             </div>
           )}
@@ -128,7 +134,7 @@ const BookDetailsModal = ({ book, userId, sedeUser, onClose, onReserve, onWaitli
             <button 
               onClick={onReserve}
               disabled={disabled}
-              className={`w-full py-5 rounded-2xl font-black text-sm shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3 ${
+              className={`w-full py-5 rounded-2xl font-black text-sm shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3 mb-6 ${
                 disabled 
                   ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
                   : 'bg-[#1DB954] text-white shadow-green-200 hover:bg-green-600'
@@ -143,7 +149,7 @@ const BookDetailsModal = ({ book, userId, sedeUser, onClose, onReserve, onWaitli
             isWaitlisted ? (
               <button 
                 onClick={onRemoveWaitlist}
-                className="w-full py-5 rounded-2xl font-black text-sm transition-all active:scale-95 flex items-center justify-center gap-3 bg-green-100 text-green-700"
+                className="w-full py-5 rounded-2xl font-black text-sm transition-all active:scale-95 flex items-center justify-center gap-3 bg-green-100 text-green-700 mb-6"
               >
                 <Check size={20} />
                 ESTÁS EN LISTA DE ESPERA ({waitlistCount})
@@ -151,13 +157,71 @@ const BookDetailsModal = ({ book, userId, sedeUser, onClose, onReserve, onWaitli
             ) : (
               <button 
                 onClick={onWaitlist}
-                className="w-full py-5 rounded-2xl font-black text-sm transition-all active:scale-95 flex items-center justify-center gap-3 bg-gray-100 text-gray-700 hover:bg-gray-200"
+                className="w-full py-5 rounded-2xl font-black text-sm transition-all active:scale-95 flex items-center justify-center gap-3 bg-gray-100 text-gray-700 hover:bg-gray-200 mb-6"
               >
                 <ListPlus size={20} />
                 ANOTARME EN LISTA DE ESPERA ({waitlistCount})
               </button>
             )
           )}
+
+          {/* HISTORIAL EXCLUSIVO PARA ADMINISTRADORES */}
+          {isAdmin && (
+            <div className="mt-8 pt-6 border-t border-gray-100">
+              <h3 className="text-xs font-black uppercase tracking-widest text-purple-900 mb-4 flex items-center gap-2">
+                <History size={16} /> Historial del Libro
+              </h3>
+              <div className="bg-gray-50 rounded-3xl p-5 border border-gray-100 space-y-5">
+
+                {/* Donación */}
+                <div className="flex gap-3 relative">
+                  <div className="w-px h-full bg-gray-200 absolute left-2.5 top-5"></div>
+                  <div className="w-5 h-5 rounded-full bg-purple-200 border-2 border-gray-50 shrink-0 z-10 flex items-center justify-center">
+                     <div className="w-2 h-2 bg-purple-900 rounded-full"></div>
+                  </div>
+                  <div className="-mt-1">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                      {book.createdAt?.toDate ? book.createdAt.toDate().toLocaleDateString('es-AR') : 'Fecha desconocida'}
+                    </p>
+                    <p className="text-xs font-bold text-gray-900">Donado por {book.donatedByName}</p>
+                  </div>
+                </div>
+
+                {/* Historial dinámico de traspasos nuevos */}
+                {book.history && book.history.map((entry, i) => (
+                  <div key={i} className="flex gap-3 relative">
+                    <div className="w-px h-full bg-gray-200 absolute left-2.5 top-5"></div>
+                    <div className="w-5 h-5 rounded-full bg-blue-200 border-2 border-gray-50 shrink-0 z-10 flex items-center justify-center">
+                       <div className="w-2 h-2 bg-blue-900 rounded-full"></div>
+                    </div>
+                    <div className="-mt-1">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                        {entry.date?.toDate ? entry.date.toDate().toLocaleDateString('es-AR') : 'Fecha desconocida'}
+                      </p>
+                      <p className="text-xs font-bold text-gray-900">{entry.event}</p>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Estado Actual */}
+                <div className="flex gap-3 relative">
+                  <div className="w-5 h-5 rounded-full bg-green-200 border-2 border-gray-50 shrink-0 z-10 flex items-center justify-center">
+                     <div className="w-2 h-2 bg-green-700 rounded-full"></div>
+                  </div>
+                  <div className="-mt-1">
+                    <p className="text-[10px] font-bold text-green-600 uppercase tracking-widest">
+                      {book.assignedAt?.toDate ? book.assignedAt.toDate().toLocaleDateString('es-AR') : 'Actualidad'}
+                    </p>
+                    <p className="text-xs font-bold text-gray-900">
+                      En poder de: {book.heldByName || 'Sede Central'}
+                    </p>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
     </div>

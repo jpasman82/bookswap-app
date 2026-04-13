@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase/config';
-import { collection, query, where, getDocs, doc, updateDoc, onSnapshot, deleteDoc, getDoc, arrayRemove } from 'firebase/firestore';
-import { BookOpen, Bookmark, Building, XCircle, LibraryBig, Phone, Clock, Send, ShieldAlert, AlertTriangle, Inbox, Check, ListChecks, UserCheck } from 'lucide-react';
+import { collection, query, where, getDocs, doc, updateDoc, onSnapshot, deleteDoc, getDoc, arrayRemove, arrayUnion } from 'firebase/firestore';
+import { BookOpen, Bookmark, Building, XCircle, LibraryBig, Phone, Clock, Send, ShieldAlert, CheckCircle, Inbox, Check, ArrowRightLeft } from 'lucide-react';
 
 const Dashboard = ({ user, dbUser }) => {
   const [stats, setStats] = useState({ donated: 0 });
   const [myReservations, setMyReservations] = useState([]);
   const [heldAvailable, setHeldAvailable] = useState([]);
-  const [heldExpired, setHeldExpired] = useState([]);
   const [toDeliver, setToDeliver] = useState([]);
   const [waitlistedBooks, setWaitlistedBooks] = useState([]);
   
@@ -17,6 +16,75 @@ const Dashboard = ({ user, dbUser }) => {
   const [allUsers, setAllUsers] = useState([]);
   const [selectedSedeId, setSelectedSedeId] = useState('');
   const [contactsData, setContactsData] = useState({});
+
+  const [sedeReceiving, setSedeReceiving] = useState([]);
+  const [sedeDelivering, setSedeDelivering] = useState([]);
+
+  const getDaysHeld = (dateVal) => {
+    if (!dateVal) return 0;
+    const assignedDate = dateVal.toDate ? dateVal.toDate() : new Date(dateVal);
+    const diffTime = Math.abs(new Date() - assignedDate);
+    return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  };
+
+  const getSedeHelper = async () => {
+    const q = query(collection(db, "users"), where("role", "==", "sede"));
+    const snap = await getDocs(q);
+    return snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() };
+  };
+
+  // Función inteligente para detectar vencimientos y auto-transferir
+  const processExpirations = async (heldBooks) => {
+    let hasChanges = false;
+    const currentSede = await getSedeHelper();
+
+    for (let book of heldBooks) {
+      // Si el libro está disponible, NO es del donante original, y pasaron 10 días
+      if (book.status === 'available' && book.heldBy !== book.donatedBy) {
+        const daysHeld = getDaysHeld(book.assignedAt || book.createdAt);
+        if (daysHeld > 10) {
+          hasChanges = true;
+          const bookRef = doc(db, "books", book.id);
+          
+          if (book.waitlist && book.waitlist.length > 0) {
+            const nextUserId = book.waitlist[0];
+            const nextUserRef = doc(db, "users", nextUserId);
+            const nextUserDoc = await getDoc(nextUserRef);
+            if (nextUserDoc.exists()) {
+              const nextUserData = nextUserDoc.data();
+              const currentCredits = nextUserData.credits || 0;
+              await updateDoc(nextUserRef, { credits: Math.max(0, currentCredits - 1) });
+              await updateDoc(bookRef, {
+                status: 'reserved',
+                reservedBy: nextUserId,
+                reservedByName: nextUserData.displayName,
+                waitlist: arrayRemove(nextUserId),
+                holderDelivered: false,
+                reserverReceived: false,
+                history: arrayUnion({
+                  date: new Date(),
+                  event: `Plazo vencido. Auto-asignado a ${nextUserData.displayName}`
+                })
+              });
+            }
+          } else if (currentSede) {
+            await updateDoc(bookRef, {
+              status: 'reserved',
+              reservedBy: currentSede.id,
+              reservedByName: currentSede.displayName,
+              holderDelivered: false,
+              reserverReceived: false,
+              history: arrayUnion({
+                date: new Date(),
+                event: `Plazo vencido. Auto-asignado a Sede Central`
+              })
+            });
+          }
+        }
+      }
+    }
+    return hasChanges;
+  };
 
   const fetchPersonalData = async () => {
     if (!user) return;
@@ -32,6 +100,13 @@ const Dashboard = ({ user, dbUser }) => {
       const heldQuery = query(collection(db, "books"), where("heldBy", "==", user.uid));
       const heldSnapshot = await getDocs(heldQuery);
       const held = heldSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      // Revisamos vencimientos. Si hubo auto-transferencias, cortamos y volvemos a llamar a la función para traer datos frescos.
+      const didAutoTransfer = await processExpirations(held);
+      if (didAutoTransfer) {
+        fetchPersonalData();
+        return;
+      }
 
       const waitlistQuery = query(collection(db, "books"), where("waitlist", "array-contains", user.uid));
       const waitlistSnapshot = await getDocs(waitlistQuery);
@@ -56,24 +131,17 @@ const Dashboard = ({ user, dbUser }) => {
       setMyReservations(reserved.filter(b => b.status === 'reserved'));
 
       const available = [];
-      const expired = [];
       const deliver = [];
 
       held.forEach(book => {
         if (book.status === 'reserved') {
           deliver.push(book);
         } else if (book.status === 'available') {
-          const daysHeld = getDaysHeld(book.assignedAt || book.createdAt);
-          if (daysHeld > 10) {
-            expired.push(book);
-          } else {
-            available.push(book);
-          }
+          available.push(book);
         }
       });
 
       setHeldAvailable(available);
-      setHeldExpired(expired);
       setToDeliver(deliver);
 
     } catch (error) {
@@ -89,10 +157,8 @@ const Dashboard = ({ user, dbUser }) => {
     if (dbUser?.role !== 'admin') return;
 
     const fetchAdminData = async () => {
-      const qSede = query(collection(db, "users"), where("role", "==", "sede"));
-      const snapSede = await getDocs(qSede);
-      if (!snapSede.empty) setSedeUser({ id: snapSede.docs[0].id, ...snapSede.docs[0].data() });
-      else setSedeUser(null);
+      const sede = await getSedeHelper();
+      setSedeUser(sede);
 
       const qUsersAll = query(collection(db, "users"), where("status", "==", "approved"));
       const snapUsersAll = await getDocs(qUsersAll);
@@ -114,12 +180,22 @@ const Dashboard = ({ user, dbUser }) => {
     };
   }, [dbUser]);
 
-  const getDaysHeld = (dateVal) => {
-    if (!dateVal) return 0;
-    const assignedDate = dateVal.toDate ? dateVal.toDate() : new Date(dateVal);
-    const diffTime = Math.abs(new Date() - assignedDate);
-    return Math.floor(diffTime / (1000 * 60 * 60 * 24));
-  };
+  useEffect(() => {
+    if (dbUser?.role !== 'admin' || !sedeUser?.id) return;
+
+    const unsubSedeRec = onSnapshot(query(collection(db, "books"), where("reservedBy", "==", sedeUser.id)), (snap) => {
+      setSedeReceiving(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    const unsubSedeDel = onSnapshot(query(collection(db, "books"), where("heldBy", "==", sedeUser.id), where("status", "==", "reserved")), (snap) => {
+      setSedeDelivering(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    return () => {
+      unsubSedeRec();
+      unsubSedeDel();
+    };
+  }, [sedeUser?.id, dbUser?.role]);
 
   const generateWpLink = (phone, title) => {
     if (!phone) return null;
@@ -128,10 +204,21 @@ const Dashboard = ({ user, dbUser }) => {
     return `https://wa.me/${cleanPhone}?text=${message}`;
   };
 
+  const restoreCreditToOldHolder = async (oldHolderId) => {
+    try {
+      const oldHolderRef = doc(db, "users", oldHolderId);
+      const oldHolderDoc = await getDoc(oldHolderRef);
+      if (oldHolderDoc.exists() && oldHolderDoc.data().role !== 'sede') {
+        await updateDoc(oldHolderRef, { credits: 1 });
+      }
+    } catch (e) { console.error("Error devolviendo crédito", e); }
+  };
+
   const handleConfirmDelivery = async (book) => {
     try {
       const bookRef = doc(db, "books", book.id);
       if (book.reserverReceived) {
+        await restoreCreditToOldHolder(book.heldBy);
         await updateDoc(bookRef, {
           status: 'available',
           heldBy: book.reservedBy,
@@ -140,10 +227,16 @@ const Dashboard = ({ user, dbUser }) => {
           reservedByName: null,
           holderDelivered: false,
           reserverReceived: false,
-          assignedAt: new Date()
+          assignedAt: new Date(),
+          history: arrayUnion({
+            date: new Date(),
+            event: `Recibido por ${book.reservedByName}`
+          })
         });
+        alert("¡Traspaso completado! Has recuperado tu crédito.");
       } else {
         await updateDoc(bookRef, { holderDelivered: true });
+        alert("Marcaste el libro como entregado. Esperando confirmación de la otra parte.");
       }
       fetchPersonalData();
     } catch (error) {
@@ -155,6 +248,7 @@ const Dashboard = ({ user, dbUser }) => {
     try {
       const bookRef = doc(db, "books", book.id);
       if (book.holderDelivered) {
+        await restoreCreditToOldHolder(book.heldBy);
         await updateDoc(bookRef, {
           status: 'available',
           heldBy: user.uid,
@@ -163,10 +257,16 @@ const Dashboard = ({ user, dbUser }) => {
           reservedByName: null,
           holderDelivered: false,
           reserverReceived: false,
-          assignedAt: new Date()
+          assignedAt: new Date(),
+          history: arrayUnion({
+            date: new Date(),
+            event: `Recibido por ${user.displayName || dbUser.displayName}`
+          })
         });
+        alert("¡Libro recibido en tu poder!");
       } else {
         await updateDoc(bookRef, { reserverReceived: true });
+        alert("Confirmaste la recepción. Esperando que la otra parte marque 'Entregado'.");
       }
       fetchPersonalData();
     } catch (error) {
@@ -174,8 +274,60 @@ const Dashboard = ({ user, dbUser }) => {
     }
   };
 
+  const handleConfirmReceiptAsSede = async (book) => {
+    if (!book.holderDelivered) {
+      if(!window.confirm("El usuario aún no marcó 'Entregado'. ¿Recibir en la Sede de todos modos?")) return;
+    }
+    try {
+      await restoreCreditToOldHolder(book.heldBy);
+      await updateDoc(doc(db, "books", book.id), {
+        status: 'available',
+        heldBy: sedeUser.id,
+        heldByName: sedeUser.displayName,
+        reservedBy: null,
+        reservedByName: null,
+        holderDelivered: false,
+        reserverReceived: false,
+        assignedAt: new Date(),
+        history: arrayUnion({
+          date: new Date(),
+          event: `Ingresado a Sede Central`
+        })
+      });
+      alert("Libro ingresado a la Sede. El usuario recuperó su crédito.");
+      fetchPersonalData();
+    } catch (e) { alert("Error al ingresar a Sede"); }
+  };
+
+  const handleConfirmDeliveryAsSede = async (book) => {
+    try {
+      const bookRef = doc(db, "books", book.id);
+      if (book.reserverReceived) {
+        await updateDoc(bookRef, {
+          status: 'available',
+          heldBy: book.reservedBy,
+          heldByName: book.reservedByName,
+          reservedBy: null,
+          reservedByName: null,
+          holderDelivered: false,
+          reserverReceived: false,
+          assignedAt: new Date(),
+          history: arrayUnion({
+            date: new Date(),
+            event: `Entregado por Sede a ${book.reservedByName}`
+          })
+        });
+        alert("Traspaso desde Sede completado con éxito.");
+      } else {
+        await updateDoc(bookRef, { holderDelivered: true });
+        alert("Marcado como entregado. Esperando que el usuario confirme recepción.");
+      }
+      fetchPersonalData();
+    } catch (e) { alert("Error al entregar desde Sede"); }
+  };
+
   const handleReturnBook = async (book) => {
-    if (!window.confirm("¿Confirmas que quieres devolver este libro?")) return;
+    if (!window.confirm("¿Confirmas que quieres enviar este libro?")) return;
     try {
       const bookRef = doc(db, "books", book.id);
       
@@ -195,19 +347,29 @@ const Dashboard = ({ user, dbUser }) => {
             reservedByName: nextUserData.displayName,
             waitlist: arrayRemove(nextUserId),
             holderDelivered: false,
-            reserverReceived: false
+            reserverReceived: false,
+            history: arrayUnion({
+              date: new Date(),
+              event: `Asignado a ${nextUserData.displayName} desde lista de espera`
+            })
           });
-          alert(`¡El libro fue asignado a ${nextUserData.displayName} que estaba en lista de espera! Tienes que entregárselo.`);
+          alert(`¡El libro fue asignado a ${nextUserData.displayName} que estaba en lista de espera! Coordiná la entrega.`);
         }
       } else {
-        if (!sedeUser) return alert("La Sede Central no está configurada.");
+        const currentSede = await getSedeHelper();
+        if (!currentSede) return alert("La Sede Central no está configurada.");
         await updateDoc(bookRef, {
-          status: 'available',
-          heldBy: sedeUser.id,
-          heldByName: sedeUser.displayName,
-          assignedAt: new Date()
+          status: 'reserved',
+          reservedBy: currentSede.id,
+          reservedByName: currentSede.displayName,
+          holderDelivered: false,
+          reserverReceived: false,
+          history: arrayUnion({
+            date: new Date(),
+            event: `Enviado a Sede Central`
+          })
         });
-        alert("Libro devuelto a la Sede Central.");
+        alert("Libro asignado a Sede Central. Ve a 'Debes Entregar' y confirma cuando lo lleves.");
       }
       fetchPersonalData();
     } catch (error) {
@@ -271,7 +433,11 @@ const Dashboard = ({ user, dbUser }) => {
         status: 'available',
         heldBy: holderId,
         heldByName: holderName,
-        assignedAt: new Date()
+        assignedAt: new Date(),
+        history: [{
+          date: new Date(),
+          event: `Aprobado en sistema. En poder de ${holderName}`
+        }]
       });
     } catch (error) {
       alert("Error.");
@@ -306,7 +472,7 @@ const Dashboard = ({ user, dbUser }) => {
             <p className="text-[9px] font-bold uppercase tracking-widest text-purple-200 text-center">Donados</p>
           </div>
           <div className="bg-white/10 p-3 rounded-2xl border border-white/20 backdrop-blur-md flex flex-col items-center justify-center">
-            <p className="text-xl font-black">{heldAvailable.length + heldExpired.length}</p>
+            <p className="text-xl font-black">{heldAvailable.length}</p>
             <p className="text-[9px] font-bold uppercase tracking-widest text-purple-200 text-center">En mi poder</p>
           </div>
         </div>
@@ -330,6 +496,7 @@ const Dashboard = ({ user, dbUser }) => {
           </div>
           <div className="flex flex-col gap-4">
             {toDeliver.map(book => {
+              const isToSede = book.reservedBy === sedeUser?.id;
               const reserverPhone = contactsData[book.reservedBy]?.phone;
               const wpLink = generateWpLink(reserverPhone, book.title);
               return (
@@ -340,7 +507,7 @@ const Dashboard = ({ user, dbUser }) => {
                     </div>
                     <div className="flex-1">
                       <p className="text-[10px] font-black text-yellow-600 bg-yellow-50 px-2 py-1 rounded-lg inline-block mb-1">
-                        A: {book.reservedByName}
+                        A: {isToSede ? 'SEDE CENTRAL' : book.reservedByName}
                       </p>
                       <h3 className="font-bold text-gray-900 text-sm leading-tight">{book.title}</h3>
                     </div>
@@ -348,11 +515,11 @@ const Dashboard = ({ user, dbUser }) => {
                   
                   {book.holderDelivered ? (
                     <div className="bg-purple-50 text-purple-900 p-3 rounded-xl text-[10px] font-black uppercase tracking-widest text-center flex items-center justify-center gap-2">
-                      <Clock size={14} /> Esperando confirmación de {book.reservedByName}
+                      <Clock size={14} /> Esperando confirmación de {isToSede ? 'la Sede' : book.reservedByName}
                     </div>
                   ) : (
                     <div className="flex gap-2">
-                      {wpLink && (
+                      {wpLink && !isToSede && (
                         <a href={wpLink} target="_blank" rel="noopener noreferrer" className="bg-[#25D366] text-white font-black px-4 py-3 rounded-xl flex items-center justify-center active:scale-95 transition">
                           <Phone size={16} />
                         </a>
@@ -383,6 +550,7 @@ const Dashboard = ({ user, dbUser }) => {
           <div className="flex flex-col gap-4">
             {myReservations.map(book => {
               const holderId = book.heldBy || book.donatedBy;
+              const isFromSede = holderId === sedeUser?.id;
               const holderPhone = contactsData[holderId]?.phone;
               const wpLink = generateWpLink(holderPhone, book.title);
               return (
@@ -392,19 +560,21 @@ const Dashboard = ({ user, dbUser }) => {
                       {book.coverUrl && <img src={book.coverUrl} className="w-full h-full object-cover" alt="" />}
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-purple-600 bg-purple-50 px-2 py-1 rounded-lg inline-block mb-1">Lo tiene: {book.heldByName || book.donatedByName}</p>
+                      <p className="text-[10px] font-bold text-purple-600 bg-purple-50 px-2 py-1 rounded-lg inline-block mb-1">
+                        Lo tiene: {isFromSede ? 'SEDE CENTRAL' : (book.heldByName || book.donatedByName)}
+                      </p>
                       <h3 className="font-bold text-gray-900 text-sm leading-tight mb-1">{book.title}</h3>
                     </div>
                   </div>
                   
                   {book.reserverReceived ? (
                     <div className="bg-purple-50 text-purple-900 p-3 rounded-xl text-[10px] font-black uppercase tracking-widest text-center flex items-center justify-center gap-2">
-                      <Clock size={14} /> Esperando entrega de {book.heldByName || book.donatedByName}
+                      <Clock size={14} /> Esperando confirmación del otro usuario
                     </div>
                   ) : (
                     <div className="flex flex-col gap-2">
                       <div className="flex gap-2">
-                        {wpLink && (
+                        {wpLink && !isFromSede && (
                           <a href={wpLink} target="_blank" rel="noopener noreferrer" className="flex-1 bg-[#25D366] text-white font-black text-[10px] uppercase tracking-widest py-3 rounded-xl flex items-center justify-center gap-2 active:scale-95 transition">
                             <Phone size={14} /> Contactar
                           </a>
@@ -431,35 +601,14 @@ const Dashboard = ({ user, dbUser }) => {
           <h2 className="text-xl font-black text-gray-900 tracking-tight">Libros en mi poder</h2>
         </div>
 
-        {heldAvailable.length === 0 && heldExpired.length === 0 ? (
+        {heldAvailable.length === 0 ? (
           <div className="bg-white border border-gray-100 p-8 rounded-3xl text-center shadow-sm">
             <p className="text-sm font-bold text-gray-900">No tienes libros para leer en este momento.</p>
           </div>
         ) : (
           <div className="flex flex-col gap-4">
-            
-            {heldExpired.map(book => (
-              <div key={book.id} className="bg-red-50 p-4 rounded-3xl shadow-sm border-2 border-red-400 flex flex-col gap-3">
-                <div className="flex gap-4 items-center">
-                  <div className="w-12 h-16 bg-white rounded-lg overflow-hidden shrink-0">
-                    {book.coverUrl && <img src={book.coverUrl} className="w-full h-full object-cover" alt="" />}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-1 text-red-600 mb-1">
-                      <AlertTriangle size={12} />
-                      <p className="text-[10px] font-black uppercase tracking-widest">Plazo Vencido</p>
-                    </div>
-                    <h3 className="font-bold text-gray-900 text-sm leading-tight">{book.title}</h3>
-                  </div>
-                </div>
-                <p className="text-xs text-red-700 font-medium">Han pasado más de 10 días. Por favor, devuélvelo para liberar la lectura.</p>
-                <button onClick={() => handleReturnBook(book)} className="w-full bg-red-600 text-white font-black text-[10px] uppercase tracking-widest py-3 rounded-xl flex items-center justify-center gap-2 active:scale-95 transition">
-                  <Building size={14} /> Devolver Libro
-                </button>
-              </div>
-            ))}
-
             {heldAvailable.map(book => {
+              const isOwnDonation = book.heldBy === book.donatedBy;
               const daysHeld = getDaysHeld(book.assignedAt || book.createdAt);
               return (
                 <div key={book.id} className="bg-white p-4 rounded-3xl shadow-sm border border-gray-100 flex flex-col gap-3">
@@ -469,13 +618,19 @@ const Dashboard = ({ user, dbUser }) => {
                     </div>
                     <div className="flex-1">
                       <h3 className="font-bold text-gray-900 text-sm leading-tight">{book.title}</h3>
-                      <p className="text-[10px] font-black text-gray-500 bg-gray-50 px-2 py-1 rounded-lg mt-1 inline-flex items-center gap-1">
-                        <Clock size={10} /> {daysHeld} / 10 días leyendo
-                      </p>
+                      {isOwnDonation ? (
+                        <p className="text-[10px] font-black text-green-600 bg-green-50 px-2 py-1 rounded-lg mt-1 inline-block">
+                          ✓ Disponible para reserva
+                        </p>
+                      ) : (
+                        <p className="text-[10px] font-black text-gray-500 bg-gray-50 px-2 py-1 rounded-lg mt-1 inline-flex items-center gap-1">
+                          <Clock size={10} /> {daysHeld} / 10 días leyendo
+                        </p>
+                      )}
                     </div>
                   </div>
                   <button onClick={() => handleReturnBook(book)} className="w-full bg-gray-100 text-gray-700 font-black text-[10px] uppercase tracking-widest py-3 rounded-xl flex items-center justify-center gap-2 active:scale-95 transition">
-                    <Building size={14} /> Devolver Libro
+                    <ArrowRightLeft size={14} /> {isOwnDonation ? 'Enviar a Sede Central' : 'Devolver Libro'}
                   </button>
                 </div>
               );
@@ -490,6 +645,47 @@ const Dashboard = ({ user, dbUser }) => {
             <ShieldAlert size={20} className="text-yellow-600" />
             <h2 className="text-xl font-black text-gray-900 tracking-tight">Panel de Control</h2>
           </div>
+
+          {(sedeReceiving.length > 0 || sedeDelivering.length > 0) && (
+            <div className="bg-white p-6 rounded-[35px] shadow-sm border border-purple-200 relative overflow-hidden">
+               <div className="absolute top-0 left-0 w-full h-1 bg-purple-500"></div>
+               <h3 className="text-sm font-black tracking-widest uppercase text-purple-900 mb-4">Logística Sede Central</h3>
+               
+               {sedeReceiving.length > 0 && (
+                   <div className="mb-4">
+                       <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Ingresos a la Sede (Devoluciones)</p>
+                       {sedeReceiving.map(book => (
+                           <div key={book.id} className="bg-purple-50 p-3 rounded-2xl mb-2 flex justify-between items-center gap-2">
+                               <div className="overflow-hidden flex-1">
+                                  <p className="text-sm font-bold text-gray-900 truncate">{book.title}</p>
+                                  <p className="text-[10px] text-gray-500 truncate">De: {book.heldByName}</p>
+                               </div>
+                               <button onClick={() => handleConfirmReceiptAsSede(book)} className="bg-purple-900 text-white text-[10px] font-bold px-3 py-2 rounded-xl shrink-0 uppercase tracking-widest active:scale-95">
+                                  {book.holderDelivered ? 'Confirmar Ingreso' : 'Forzar Ingreso'}
+                               </button>
+                           </div>
+                       ))}
+                   </div>
+               )}
+
+               {sedeDelivering.length > 0 && (
+                   <div>
+                       <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Egresos de Sede (Entregas)</p>
+                       {sedeDelivering.map(book => (
+                           <div key={book.id} className="bg-yellow-50 p-3 rounded-2xl mb-2 flex justify-between items-center gap-2">
+                               <div className="overflow-hidden flex-1">
+                                  <p className="text-sm font-bold text-gray-900 truncate">{book.title}</p>
+                                  <p className="text-[10px] text-gray-500 truncate">Para: {book.reservedByName}</p>
+                               </div>
+                               <button onClick={() => handleConfirmDeliveryAsSede(book)} className="bg-yellow-500 text-yellow-950 text-[10px] font-bold px-3 py-2 rounded-xl shrink-0 uppercase tracking-widest active:scale-95">
+                                  {book.reserverReceived ? 'Confirmar Entrega' : 'Marcar Entregado'}
+                               </button>
+                           </div>
+                       ))}
+                   </div>
+               )}
+            </div>
+          )}
 
           <div className="bg-purple-50 border border-purple-100 p-6 rounded-[35px]">
             <div className="flex gap-4 items-center mb-4">
