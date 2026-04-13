@@ -3,7 +3,7 @@ import { db } from '../firebase/config';
 import { collection, getDocs, query, orderBy, doc, runTransaction, onSnapshot, deleteDoc, updateDoc } from 'firebase/firestore';
 import BookCard from '../components/BookCard';
 import BookDetailsModal from '../components/BookDetailsModal';
-import EditBookModal from '../components/EditBookModal'; // Importamos el nuevo modal
+import EditBookModal from '../components/EditBookModal'; 
 import { Search, Coins } from 'lucide-react';
 
 const Library = ({ user }) => {
@@ -11,7 +11,7 @@ const Library = ({ user }) => {
   const [userCredits, setUserCredits] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBook, setSelectedBook] = useState(null);
-  const [editingBook, setEditingBook] = useState(null); // Estado para el libro que se está editando
+  const [editingBook, setEditingBook] = useState(null);
 
   useEffect(() => {
     if (!user) return;
@@ -85,20 +85,19 @@ const Library = ({ user }) => {
 
   return (
     <div className="pb-28">
-      {/* Header idéntico al anterior */}
       <div className="bg-white px-5 py-6 sticky top-0 z-20 shadow-sm border-b border-gray-50">
         <div className="flex justify-between items-end mb-6">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-600 mb-1">Explorar</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-purple-900 mb-1">Explorar</p>
             <h1 className="text-3xl font-black text-gray-900 tracking-tighter leading-none">Biblioteca</h1>
           </div>
           <div className="bg-yellow-400 px-4 py-2 rounded-2xl flex items-center gap-2 shadow-lg shadow-yellow-100">
-            <Coins size={16} className="text-yellow-800" />
-            <span className="font-black text-yellow-900 text-sm">{userCredits}</span>
+            <Coins size={16} className="text-yellow-900" />
+            <span className="font-black text-yellow-950 text-sm">{userCredits}</span>
           </div>
         </div>
         <div className="relative">
-          <input type="text" placeholder="Buscar..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 bg-gray-100 rounded-2xl text-sm font-bold placeholder-gray-400 outline-none focus:bg-white transition-all shadow-inner" />
+          <input type="text" placeholder="Buscar..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 bg-gray-100 rounded-2xl text-sm font-bold placeholder-gray-400 outline-none focus:bg-white focus:ring-2 focus:ring-purple-900 transition-all shadow-inner" />
           <Search size={20} className="absolute left-4 top-4 text-gray-300" />
         </div>
       </div>
@@ -112,15 +111,14 @@ const Library = ({ user }) => {
             onOpenDetails={() => setSelectedBook(book)}
             onAuthorize={() => handleAuthorize(book)}
             onDelete={() => handleDelete(book.id)}
-            onEdit={() => setEditingBook(book)} // Abrimos el modal de edición
+            onEdit={() => setEditingBook(book)} 
             disabled={userCredits <= 0} 
           />
         ))}
       </div>
 
-      <BookDetailsModal book={selectedBook} onClose={() => setSelectedBook(null)} onReserve={() => handleReserve(selectedBook.id)} disabled={userCredits <= 0} />
+      <BookDetailsModal book={selectedBook} onClose={() => setSelectedBook(null)} onReserve={() => handleReserve(selectedBook?.id)} disabled={userCredits <= 0} />
       
-      {/* Nuevo Modal de Edición */}
       <EditBookModal 
         book={editingBook} 
         onClose={() => setEditingBook(null)} 

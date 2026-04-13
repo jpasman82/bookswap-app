@@ -1,8 +1,8 @@
 import React from 'react';
-import { CheckCircle, Trash2, Edit3 } from 'lucide-react';
+import { CheckCircle, Trash2, Edit3, Headphones } from 'lucide-react';
 
 const BookCard = ({ book, onReserve, onOpenDetails, onAuthorize, onDelete, onEdit, disabled }) => {
-  const gradients = ['from-blue-600 to-cyan-500', 'from-indigo-600 to-purple-500', 'from-rose-500 to-orange-400', 'from-emerald-500 to-teal-400', 'from-amber-500 to-orange-500'];
+  const gradients = ['from-purple-900 to-indigo-800', 'from-indigo-800 to-purple-800', 'from-fuchsia-800 to-purple-900'];
   const colorIndex = book.title ? book.title.length % gradients.length : 0;
 
   return (
@@ -23,13 +23,26 @@ const BookCard = ({ book, onReserve, onOpenDetails, onAuthorize, onDelete, onEdi
           <div>
             <div className={`inline-block px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest mb-2 ${
               book.status === 'pending' ? 'bg-orange-100 text-orange-600' : 
-              book.status === 'available' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'
+              book.status === 'available' ? 'bg-green-100 text-green-600' : 'bg-purple-100 text-purple-900'
             }`}>
               {book.status === 'pending' ? 'Pendiente' : book.status === 'available' ? 'Disponible' : 'Reservado'}
             </div>
             <h3 className="text-base font-bold text-gray-900 leading-tight mb-0.5 line-clamp-2">{book.title}</h3>
             <p className="text-xs text-gray-500 font-medium">{book.author}</p>
           </div>
+          
+          {/* Botón de Podcast incrustado en la card */}
+          {book.spotifyLink && (
+            <a 
+              href={book.spotifyLink} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()} // Para que no abra el detalle al tocar el link
+              className="mt-2 inline-flex items-center gap-1.5 text-[10px] font-black text-[#1DB954] uppercase tracking-widest bg-green-50 px-3 py-1.5 rounded-lg w-max"
+            >
+              <Headphones size={12} /> Escuchar Resumen
+            </a>
+          )}
         </div>
       </div>
 
@@ -44,7 +57,7 @@ const BookCard = ({ book, onReserve, onOpenDetails, onAuthorize, onDelete, onEdi
             </button>
             <button 
               onClick={(e) => { e.stopPropagation(); onAuthorize(); }}
-              className="flex-1 bg-blue-600 text-white py-3 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 active:scale-95 shadow-md shadow-blue-100 transition"
+              className="flex-1 bg-purple-900 text-white py-3 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 active:scale-95 shadow-md shadow-purple-200 transition"
             >
               <CheckCircle size={14} /> Autorizar
             </button>
@@ -55,7 +68,7 @@ const BookCard = ({ book, onReserve, onOpenDetails, onAuthorize, onDelete, onEdi
           <button 
             onClick={(e) => { e.stopPropagation(); onReserve(); }}
             disabled={disabled}
-            className={`flex-1 py-3 rounded-2xl font-bold text-xs active:scale-95 transition ${disabled ? 'bg-gray-100 text-gray-400' : 'bg-gray-900 text-white shadow-md'}`}
+            className={`flex-1 py-3 rounded-2xl font-bold text-xs active:scale-95 transition ${disabled ? 'bg-gray-100 text-gray-400' : 'bg-purple-900 text-white shadow-md shadow-purple-200'}`}
           >
             Reservar
           </button>
