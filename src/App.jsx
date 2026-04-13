@@ -1,15 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db } from './firebase/config';
-import { 
-  GoogleAuthProvider, 
-  signInWithPopup, 
-  signOut, 
-  onAuthStateChanged,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword 
-} from "firebase/auth";
+import { GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 import { doc, setDoc, onSnapshot, getDoc } from 'firebase/firestore';
-import { Home, LibraryBig, PlusCircle, User, ShieldAlert, Loader2, Mail, Lock } from 'lucide-react';
+import { Home, LibraryBig, PlusCircle, ShieldAlert, Loader2, LogOut } from 'lucide-react';
 
 import Dashboard from './views/Dashboard';
 import DonateBook from './components/DonateBook';
@@ -20,11 +13,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [dbUser, setDbUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState('library');
-
-  const [isRegistering, setIsRegistering] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [view, setView] = useState('dashboard');
   const [error, setError] = useState('');
 
   const ADMIN_EMAIL = 'celularjpp@gmail.com';
@@ -34,7 +23,6 @@ function App() {
       setError('');
       if (currentUser) {
         const userRef = doc(db, "users", currentUser.uid);
-        
         const snap = await getDoc(userRef);
         
         if (!snap.exists()) {
@@ -42,19 +30,17 @@ function App() {
           const newUser = {
             uid: currentUser.uid,
             email: currentUser.email,
-            displayName: currentUser.displayName || email.split('@')[0],
+            displayName: currentUser.displayName || 'Nuevo Lector',
             photoUrl: currentUser.photoURL || '',
-            status: isAdmin ? 'approved' : 'pending',
+            status: isAdmin ? 'approved' : 'new',
             role: isAdmin ? 'admin' : 'user',
-            credits: isAdmin ? 10 : 0,
+            credits: isAdmin ? 1 : 0,
             createdAt: new Date()
           };
           try {
             await setDoc(userRef, newUser);
-            setDbUser(newUser);
           } catch (err) {
-            console.error(err);
-            setError("Error de base de datos.");
+            setError("Error al crear usuario.");
           }
         }
 
@@ -72,21 +58,7 @@ function App() {
       setUser(currentUser);
     });
     return () => unsubscribe();
-  }, [email]);
-
-  const handleEmailAuth = async (e) => {
-    e.preventDefault();
-    setError('');
-    try {
-      if (isRegistering) {
-        await createUserWithEmailAndPassword(auth, email, password);
-      } else {
-        await signInWithEmailAndPassword(auth, email, password);
-      }
-    } catch (err) {
-      setError("Fallo en la autenticación: " + err.message);
-    }
-  };
+  }, []);
 
   const loginWithGoogle = async () => {
     setError('');
@@ -116,57 +88,24 @@ function App() {
           </div>
           
           <h1 className="text-3xl font-black text-center mb-1 tracking-tighter text-gray-900">BookSwap</h1>
-          <p className="text-center text-gray-400 mb-8 font-medium">
-            {isRegistering ? 'Crea una cuenta nueva' : 'Ingresa a la comunidad'}
-          </p>
+          <p className="text-center text-gray-400 mb-8 font-medium font-bold uppercase text-[10px] tracking-widest">Exclusivo San Isidro</p>
 
-          <form onSubmit={handleEmailAuth} className="space-y-4">
-            <div className="relative">
-              <Mail className="absolute left-4 top-4 text-gray-400" size={18} />
-              <input 
-                type="email" placeholder="Email" 
-                className="w-full pl-12 pr-4 py-4 bg-gray-50 rounded-2xl outline-none focus:ring-2 focus:ring-purple-900 font-bold text-sm" 
-                value={email} onChange={e => setEmail(e.target.value)} required 
-              />
-            </div>
-            <div className="relative">
-              <Lock className="absolute left-4 top-4 text-gray-400" size={18} />
-              <input 
-                type="password" placeholder="Contraseña" 
-                className="w-full pl-12 pr-4 py-4 bg-gray-50 rounded-2xl outline-none focus:ring-2 focus:ring-purple-900 font-bold text-sm" 
-                value={password} onChange={e => setPassword(e.target.value)} required 
-              />
-            </div>
-            
-            {error && <p className="text-red-500 text-[10px] font-black uppercase text-center bg-red-50 p-2 rounded-lg">{error}</p>}
+          {error && <p className="text-red-500 text-[10px] font-black uppercase text-center bg-red-50 p-2 rounded-lg mb-6">{error}</p>}
 
-            <button type="submit" className="w-full bg-purple-900 text-white py-4 rounded-2xl font-black shadow-lg hover:bg-purple-950 active:scale-95 transition-all">
-              {isRegistering ? 'CREAR CUENTA' : 'ENTRAR'}
-            </button>
-          </form>
-
-          <div className="flex items-center my-6">
-            <div className="flex-1 h-px bg-gray-100"></div>
-            <span className="px-4 text-[10px] font-black text-gray-300">O</span>
-            <div className="flex-1 h-px bg-gray-100"></div>
-          </div>
-
-          <button onClick={loginWithGoogle} className="w-full bg-purple-50 text-purple-900 py-4 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-purple-100 transition-all active:scale-95">
-            Continuar con Google
+          <button 
+            onClick={loginWithGoogle} 
+            className="w-full bg-purple-50 text-purple-900 py-4 rounded-2xl font-black shadow-sm flex items-center justify-center gap-3 hover:bg-purple-100 transition-all active:scale-95 border border-purple-100"
+          >
+            <img src="https://www.svgrepo.com/show/475656/google-color.svg" className="w-5 h-5" alt="G" />
+            ENTRAR CON GOOGLE
           </button>
-
-          <p className="mt-8 text-center text-sm font-medium text-gray-500">
-            {isRegistering ? '¿Ya tienes cuenta?' : '¿No tienes cuenta?'} 
-            <button 
-              onClick={() => { setIsRegistering(!isRegistering); setError(''); }} 
-              className="text-purple-900 font-black ml-2 underline decoration-2 underline-offset-4"
-            >
-              {isRegistering ? 'Inicia sesión' : 'Regístrate acá'}
-            </button>
-          </p>
         </div>
       </div>
     );
+  }
+
+  if (dbUser?.status === 'new') {
+    return <Profile user={user} dbUser={dbUser} />;
   }
 
   if (dbUser?.status === 'pending') {
@@ -175,7 +114,7 @@ function App() {
         <div className="bg-yellow-100 p-6 rounded-full mb-6"><ShieldAlert size={48} className="text-yellow-600" /></div>
         <h2 className="text-2xl font-black mb-4 tracking-tighter">Perfil en Revisión</h2>
         <p className="text-gray-500 font-medium leading-relaxed max-w-xs">
-          ¡Hola! Tu cuenta fue creada, pero un administrador debe validarla para que puedas ver los libros.
+          Tu cuenta fue creada. Un administrador debe validarla para que puedas ver los libros.
         </p>
         <button onClick={() => signOut(auth)} className="mt-10 text-purple-900 font-bold hover:text-purple-950 transition-all underline">Cerrar Sesión</button>
       </div>
@@ -186,9 +125,17 @@ function App() {
     <div className="bg-gray-50 min-h-screen pb-20">
       <header className="bg-white p-5 flex justify-between items-center sticky top-0 z-30 shadow-sm border-b border-gray-100">
         <span className="font-black text-2xl text-purple-900 tracking-tighter">BookSwap</span>
-        <div onClick={() => setView('profile')} className="flex items-center gap-2 bg-gray-50 p-1 pr-3 rounded-full cursor-pointer hover:bg-gray-100 transition-all">
-          <img src={dbUser?.photoUrl || `https://ui-avatars.com/api/?background=random&name=${dbUser?.displayName}`} className="w-8 h-8 rounded-full border border-purple-200 object-cover" alt="" />
-          <span className="text-xs font-black text-purple-950">{dbUser?.displayName?.split(' ')[0]}</span>
+        <div className="flex items-center gap-3">
+          <div onClick={() => setView('profile')} className="flex items-center gap-2 bg-gray-50 p-1 pr-3 rounded-full cursor-pointer hover:bg-gray-100 transition-all">
+            <img src={dbUser?.photoUrl || `https://ui-avatars.com/api/?background=random&name=${dbUser?.displayName}`} className="w-8 h-8 rounded-full border border-purple-200 object-cover" alt="" />
+            <span className="text-xs font-black text-purple-950">{dbUser?.displayName?.split(' ')[0]}</span>
+          </div>
+          <button 
+            onClick={() => signOut(auth)} 
+            className="p-2 bg-gray-50 rounded-full text-gray-400 hover:text-red-500 transition-colors"
+          >
+            <LogOut size={18} />
+          </button>
         </div>
       </header>
 
@@ -196,22 +143,22 @@ function App() {
         {view === 'library' && <Library user={user} dbUser={dbUser} />}
         {view === 'donate' && <DonateBook user={user} onBookAdded={() => setView('library')} />}
         {view === 'dashboard' && <Dashboard user={user} dbUser={dbUser} />}
-        {view === 'profile' && <Profile user={user} dbUser={dbUser} onLogout={() => signOut(auth)} />}
+        {view === 'profile' && <Profile user={user} dbUser={dbUser} />}
       </main>
 
       <nav className="fixed bottom-0 w-full bg-white border-t border-gray-100 h-16 flex justify-around items-center z-40 px-4 pb-safe">
-        <button onClick={() => setView('library')} className={`flex flex-col items-center ${view === 'library' ? 'text-purple-900' : 'text-gray-400'}`}>
-          <LibraryBig size={22} strokeWidth={view === 'library' ? 2.5 : 2} />
-          <span className="text-[9px] font-black mt-1 uppercase">Librería</span>
-        </button>
-        <button onClick={() => setView('donate')} className="relative -top-5">
-          <div className="bg-yellow-500 p-4 rounded-full text-purple-950 shadow-xl shadow-yellow-200 active:scale-90 transition-transform">
-            <PlusCircle size={28} />
-          </div>
-        </button>
         <button onClick={() => setView('dashboard')} className={`flex flex-col items-center ${view === 'dashboard' ? 'text-purple-900' : 'text-gray-400'}`}>
           <Home size={22} strokeWidth={view === 'dashboard' ? 2.5 : 2} />
           <span className="text-[9px] font-black mt-1 uppercase">Inicio</span>
+        </button>
+        <button onClick={() => setView('donate')} className="relative -top-5">
+          <div className="bg-yellow-500 p-4 rounded-full text-purple-950 shadow-xl shadow-yellow-200/50 active:scale-90 transition-transform">
+            <PlusCircle size={28} />
+          </div>
+        </button>
+        <button onClick={() => setView('library')} className={`flex flex-col items-center ${view === 'library' ? 'text-purple-900' : 'text-gray-400'}`}>
+          <LibraryBig size={22} strokeWidth={view === 'library' ? 2.5 : 2} />
+          <span className="text-[9px] font-black mt-1 uppercase">Librería</span>
         </button>
       </nav>
     </div>

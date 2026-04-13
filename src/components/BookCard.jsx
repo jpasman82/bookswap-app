@@ -1,9 +1,21 @@
 import React from 'react';
-import { CheckCircle, Trash2, Edit3, Headphones } from 'lucide-react';
+import { CheckCircle, Trash2, Edit3, Headphones, ListPlus, Check, ShieldCheck } from 'lucide-react';
 
-const BookCard = ({ book, onReserve, onOpenDetails, onAuthorize, onDelete, onEdit, disabled }) => {
+const BookCard = ({ book, userId, sedeUser, isAdmin, onReserve, onOpenDetails, onAuthorize, onDelete, onEdit, onWaitlist, onRemoveWaitlist, disabled }) => {
   const gradients = ['from-purple-900 to-indigo-800', 'from-indigo-800 to-purple-800', 'from-fuchsia-800 to-purple-900'];
   const colorIndex = book.title ? book.title.length % gradients.length : 0;
+
+  const assignedDate = book.assignedAt?.toDate() || book.createdAt?.toDate();
+  const diffTime = Math.abs(new Date() - assignedDate);
+  const daysHeld = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  const daysLeft = 10 - daysHeld;
+  
+  const isWaitlisted = book.waitlist?.includes(userId);
+  const isMyBook = book.heldBy === userId || book.reservedBy === userId;
+  
+  const canReserve = book.status === 'available' && !isMyBook;
+  const canWaitlist = book.status === 'reserved' && !isMyBook;
+  const waitlistCount = book.waitlist?.length || 0;
 
   return (
     <div 
@@ -29,15 +41,20 @@ const BookCard = ({ book, onReserve, onOpenDetails, onAuthorize, onDelete, onEdi
             </div>
             <h3 className="text-base font-bold text-gray-900 leading-tight mb-0.5 line-clamp-2">{book.title}</h3>
             <p className="text-xs text-gray-500 font-medium">{book.author}</p>
+            
+            {book.status !== 'pending' && (
+              <p className={`text-[10px] font-bold mt-2 ${daysLeft < 0 ? 'text-red-500' : 'text-gray-400'}`}>
+                {daysLeft < 0 ? 'Devolución vencida' : `Faltan ${daysLeft} días para devolución`}
+              </p>
+            )}
           </div>
           
-          {/* Botón de Podcast incrustado en la card */}
           {book.spotifyLink && (
             <a 
               href={book.spotifyLink} 
               target="_blank" 
               rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()} // Para que no abra el detalle al tocar el link
+              onClick={(e) => e.stopPropagation()}
               className="mt-2 inline-flex items-center gap-1.5 text-[10px] font-black text-[#1DB954] uppercase tracking-widest bg-green-50 px-3 py-1.5 rounded-lg w-max"
             >
               <Headphones size={12} /> Escuchar Resumen
@@ -46,40 +63,79 @@ const BookCard = ({ book, onReserve, onOpenDetails, onAuthorize, onDelete, onEdi
         </div>
       </div>
 
-      <div className="flex gap-2 pt-2 border-t border-gray-50">
-        {book.status === 'pending' && (
-          <>
+      <div className="flex flex-col gap-2 pt-2 border-t border-gray-50">
+        
+        {/* PANEL DE ADMINISTRADOR (Siempre visible para Admins) */}
+        {isAdmin && (
+          <div className="flex gap-2 w-full pb-2 border-b border-gray-50">
             <button 
               onClick={(e) => { e.stopPropagation(); onEdit(); }}
-              className="w-12 bg-gray-100 text-gray-600 py-3 rounded-2xl flex items-center justify-center active:scale-95 transition"
+              className="flex-1 bg-gray-100 text-gray-700 py-2 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-1 active:scale-95 transition"
             >
-              <Edit3 size={18} />
+              <Edit3 size={14} /> Editar
             </button>
+            {book.status === 'pending' && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onAuthorize(); }}
+                className="flex-1 bg-purple-100 text-purple-900 py-2 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-1 active:scale-95 transition"
+              >
+                <CheckCircle size={14} /> Autorizar
+              </button>
+            )}
             <button 
-              onClick={(e) => { e.stopPropagation(); onAuthorize(); }}
-              className="flex-1 bg-purple-900 text-white py-3 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 active:scale-95 shadow-md shadow-purple-200 transition"
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              className="flex-1 bg-red-50 text-red-600 py-2 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-1 active:scale-95 transition"
             >
-              <CheckCircle size={14} /> Autorizar
+              <Trash2 size={14} /> Eliminar
             </button>
-          </>
-        )}
-        
-        {book.status === 'available' && (
-          <button 
-            onClick={(e) => { e.stopPropagation(); onReserve(); }}
-            disabled={disabled}
-            className={`flex-1 py-3 rounded-2xl font-bold text-xs active:scale-95 transition ${disabled ? 'bg-gray-100 text-gray-400' : 'bg-purple-900 text-white shadow-md shadow-purple-200'}`}
-          >
-            Reservar
-          </button>
+          </div>
         )}
 
-        <button 
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="w-12 bg-red-50 text-red-500 py-3 rounded-2xl flex items-center justify-center active:scale-95 transition border border-red-100"
-        >
-          <Trash2 size={18} />
-        </button>
+        {/* ACCIONES DEL USUARIO LECTOR */}
+        <div className="flex gap-2 w-full">
+          
+          {book.status === 'pending' && !isAdmin && (
+            <div className="w-full py-3 bg-orange-50 text-orange-600 rounded-2xl text-[10px] font-black uppercase tracking-widest text-center">
+              En revisión por administrador
+            </div>
+          )}
+
+          {isMyBook && book.status !== 'pending' && (
+            <div className="flex-1 py-3 rounded-2xl font-bold text-[10px] uppercase tracking-widest bg-purple-50 text-purple-900 flex items-center justify-center text-center">
+              Libro en tu poder
+            </div>
+          )}
+
+          {canReserve && (
+            <button 
+              onClick={(e) => { e.stopPropagation(); onReserve(); }}
+              disabled={disabled}
+              className={`flex-1 py-3 rounded-2xl font-bold text-[10px] uppercase tracking-widest active:scale-95 transition flex items-center justify-center gap-2 ${
+                disabled ? 'bg-gray-100 text-gray-400' : 'bg-[#1DB954] text-white shadow-md shadow-green-200'
+              }`}
+            >
+              {disabled ? 'Sin créditos' : <><ShieldCheck size={14} /> Reservar</>}
+            </button>
+          )}
+
+          {canWaitlist && (
+            isWaitlisted ? (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onRemoveWaitlist(); }}
+                className="flex-1 py-3 rounded-2xl font-bold text-[10px] uppercase tracking-widest bg-green-100 text-green-700 active:scale-95 transition flex items-center justify-center gap-2"
+              >
+                <Check size={14} /> En espera ({waitlistCount})
+              </button>
+            ) : (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onWaitlist(); }}
+                className="flex-1 py-3 rounded-2xl font-bold text-[10px] uppercase tracking-widest bg-gray-100 text-gray-700 active:scale-95 transition flex items-center justify-center gap-2 hover:bg-gray-200"
+              >
+                <ListPlus size={14} /> Anotarme en espera ({waitlistCount})
+              </button>
+            )
+          )}
+        </div>
       </div>
     </div>
   );

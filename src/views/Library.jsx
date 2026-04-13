@@ -1,30 +1,45 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase/config';
-import { collection, getDocs, query, orderBy, doc, runTransaction, onSnapshot, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, doc, runTransaction, onSnapshot, deleteDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import BookCard from '../components/BookCard';
 import BookDetailsModal from '../components/BookDetailsModal';
 import EditBookModal from '../components/EditBookModal'; 
 import { Search, Coins } from 'lucide-react';
 
-const Library = ({ user }) => {
+const Library = ({ user, dbUser }) => {
   const [books, setBooks] = useState([]);
   const [userCredits, setUserCredits] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBook, setSelectedBook] = useState(null);
   const [editingBook, setEditingBook] = useState(null);
+  const [sedeUser, setSedeUser] = useState(null);
+
+  // Variable maestra para saber si el usuario activo es administrador
+  const isAdmin = dbUser?.role === 'admin';
 
   useEffect(() => {
     if (!user) return;
-    const unsubscribe = onSnapshot(doc(db, "users", user.uid), (doc) => {
-      if (doc.exists()) setUserCredits(doc.data().credits || 0);
+    const unsubscribe = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
+      if (docSnap.exists()) setUserCredits(docSnap.data().credits || 0);
     });
     return () => unsubscribe();
   }, [user]);
 
+  useEffect(() => {
+    const fetchSede = async () => {
+      const q = query(collection(db, "users"), where("role", "==", "sede"));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        setSedeUser({ id: snap.docs[0].id, ...snap.docs[0].data() });
+      }
+    };
+    fetchSede();
+  }, []);
+
   const fetchBooks = async () => {
     const q = query(collection(db, "books"), orderBy("createdAt", "desc"));
     const querySnapshot = await getDocs(q);
-    setBooks(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    setBooks(querySnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() })));
   };
 
   useEffect(() => { fetchBooks(); }, []);
@@ -34,7 +49,6 @@ const Library = ({ user }) => {
       const bookRef = doc(db, "books", editingBook.id);
       await updateDoc(bookRef, updatedData);
       setEditingBook(null);
-      alert("Información actualizada.");
       fetchBooks();
     } catch (e) {
       alert("Error al actualizar.");
@@ -42,23 +56,31 @@ const Library = ({ user }) => {
   };
 
   const handleAuthorize = async (book) => {
-    if (!window.confirm(`¿Autorizar alta de "${book.title}"?`)) return;
     try {
       await runTransaction(db, async (transaction) => {
         const donorRef = doc(db, "users", book.donatedBy);
         const bookRef = doc(db, "books", book.id);
         const donorSnap = await transaction.get(donorRef);
-        const currentCredits = donorSnap.exists() ? donorSnap.data().credits || 0 : 0;
-        transaction.update(bookRef, { status: 'available' });
-        transaction.set(donorRef, { credits: currentCredits + 1 }, { merge: true });
+        
+        const finalHeldBy = book.heldBy || book.donatedBy;
+        const finalHeldByName = book.heldByName || book.donatedByName;
+
+        transaction.update(bookRef, { 
+          status: 'available',
+          heldBy: finalHeldBy,
+          heldByName: finalHeldByName,
+          assignedAt: new Date()
+        });
+        if (donorSnap.exists()) {
+          transaction.set(donorRef, { credits: 1 }, { merge: true });
+        }
       });
-      alert("Libro disponible y crédito otorgado.");
       fetchBooks();
     } catch (e) { alert("Error en la autorización."); }
   };
 
   const handleDelete = async (bookId) => {
-    if (!window.confirm("¿Eliminar definitivamente?")) return;
+    if (!window.confirm("¿Estás seguro de eliminar este libro?")) return;
     try {
       await deleteDoc(doc(db, "books", bookId));
       fetchBooks();
@@ -71,14 +93,52 @@ const Library = ({ user }) => {
     try {
       await runTransaction(db, async (transaction) => {
         const userDoc = await transaction.get(userRef);
+        const bookDoc = await transaction.get(bookRef);
         const credits = userDoc.data()?.credits || 0;
         if (credits <= 0) throw "Sin créditos.";
-        transaction.update(userRef, { credits: credits - 1 });
-        transaction.update(bookRef, { status: 'reserved', reservedBy: user.uid, reservedByName: user.displayName });
+        
+        const bookData = bookDoc.data();
+        const finalHeldBy = bookData.heldBy || bookData.donatedBy;
+        const finalHeldByName = bookData.heldByName || bookData.donatedByName || "Usuario";
+
+        transaction.update(userRef, { credits: 0 });
+        transaction.update(bookRef, { 
+          status: 'reserved', 
+          reservedBy: user.uid, 
+          reservedByName: userDoc.data()?.displayName || user.displayName,
+          heldBy: finalHeldBy,
+          heldByName: finalHeldByName,
+          holderDelivered: false,
+          reserverReceived: false
+        });
       });
-      alert("Reservado.");
       fetchBooks();
+      setSelectedBook(null);
     } catch (e) { alert(e); }
+  };
+
+  const handleWaitlist = async (bookId) => {
+    try {
+      await updateDoc(doc(db, "books", bookId), {
+        waitlist: arrayUnion(user.uid)
+      });
+      fetchBooks();
+      if(selectedBook) setSelectedBook({...selectedBook, waitlist: [...(selectedBook.waitlist || []), user.uid]});
+    } catch (e) {
+      alert("Error.");
+    }
+  };
+
+  const handleRemoveWaitlist = async (bookId) => {
+    try {
+      await updateDoc(doc(db, "books", bookId), {
+        waitlist: arrayRemove(user.uid)
+      });
+      fetchBooks();
+      if(selectedBook) setSelectedBook({...selectedBook, waitlist: selectedBook.waitlist.filter(id => id !== user.uid)});
+    } catch (e) {
+      alert("Error.");
+    }
   };
 
   const filteredBooks = books.filter(b => b.title.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -93,7 +153,7 @@ const Library = ({ user }) => {
           </div>
           <div className="bg-yellow-400 px-4 py-2 rounded-2xl flex items-center gap-2 shadow-lg shadow-yellow-100">
             <Coins size={16} className="text-yellow-900" />
-            <span className="font-black text-yellow-950 text-sm">{userCredits}</span>
+            <span className="font-black text-yellow-950 text-sm">{userCredits > 0 ? 1 : 0}</span>
           </div>
         </div>
         <div className="relative">
@@ -107,17 +167,31 @@ const Library = ({ user }) => {
           <BookCard 
             key={book.id} 
             book={book} 
+            userId={user.uid}
+            sedeUser={sedeUser}
+            isAdmin={isAdmin} 
             onReserve={() => handleReserve(book.id)}
             onOpenDetails={() => setSelectedBook(book)}
             onAuthorize={() => handleAuthorize(book)}
             onDelete={() => handleDelete(book.id)}
-            onEdit={() => setEditingBook(book)} 
+            onEdit={() => setEditingBook(book)}
+            onWaitlist={() => handleWaitlist(book.id)}
+            onRemoveWaitlist={() => handleRemoveWaitlist(book.id)}
             disabled={userCredits <= 0} 
           />
         ))}
       </div>
 
-      <BookDetailsModal book={selectedBook} onClose={() => setSelectedBook(null)} onReserve={() => handleReserve(selectedBook?.id)} disabled={userCredits <= 0} />
+      <BookDetailsModal 
+        book={selectedBook} 
+        userId={user.uid}
+        sedeUser={sedeUser}
+        onClose={() => setSelectedBook(null)} 
+        onReserve={() => handleReserve(selectedBook?.id)} 
+        onWaitlist={() => handleWaitlist(selectedBook?.id)}
+        onRemoveWaitlist={() => handleRemoveWaitlist(selectedBook?.id)}
+        disabled={userCredits <= 0} 
+      />
       
       <EditBookModal 
         book={editingBook} 

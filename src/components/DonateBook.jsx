@@ -1,22 +1,40 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db } from '../firebase/config';
-import { collection, addDoc } from 'firebase/firestore';
-import { Book, User, Image as ImageIcon, Headphones, Loader2, Search, CheckCircle } from 'lucide-react';
+import { collection, addDoc, getDocs, query, where } from 'firebase/firestore';
+import { Book, User, Image as ImageIcon, Headphones, Loader2, Search, CheckCircle, MapPin } from 'lucide-react';
 
 const DonateBook = ({ user, onBookAdded }) => {
   const [loading, setLoading] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
+  const [sedeUser, setSedeUser] = useState(null); // Guardamos los datos de la Sede
   
   const [formData, setFormData] = useState({
     title: '',
     author: '',
     coverUrl: '',
-    spotifyLink: ''
+    spotifyLink: '',
+    deliverToSede: false // Nuevo campo: ¿Lo entregan en la sede o lo guardan en casa?
   });
 
-  // Buscar en la API de Google Books
+  // Buscamos el usuario "Sede" al cargar el componente
+  useEffect(() => {
+    const fetchSede = async () => {
+      try {
+        const q = query(collection(db, "users"), where("role", "==", "sede"));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          // Tomamos el primer resultado que tenga rol 'sede'
+          setSedeUser({ id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() });
+        }
+      } catch (error) {
+        console.error("Error buscando sede:", error);
+      }
+    };
+    fetchSede();
+  }, []);
+
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!searchTerm.trim()) return;
@@ -34,15 +52,13 @@ const DonateBook = ({ user, onBookAdded }) => {
     }
   };
 
-  // Seleccionar un libro de los resultados de la API
   const handleSelectBook = (book) => {
     const info = book.volumeInfo;
     setFormData({
+      ...formData,
       title: info.title || '',
       author: info.authors ? info.authors.join(', ') : '',
-      // Reemplazamos http por https para evitar errores en navegadores
       coverUrl: info.imageLinks?.thumbnail?.replace('http:', 'https:') || '',
-      spotifyLink: formData.spotifyLink // Mantenemos el link de Spotify si ya lo había puesto
     });
     setSearchResults([]);
     setSearchTerm('');
@@ -54,14 +70,21 @@ const DonateBook = ({ user, onBookAdded }) => {
     
     setLoading(true);
     try {
+      // Determinamos quién es el tenedor inicial en base a la selección
+      const initialHolderId = formData.deliverToSede && sedeUser ? sedeUser.id : user.uid;
+      const initialHolderName = formData.deliverToSede && sedeUser ? sedeUser.displayName : (user.displayName || user.email.split('@')[0]);
+
       await addDoc(collection(db, "books"), {
         title: formData.title,
         author: formData.author,
         coverUrl: formData.coverUrl,
         spotifyLink: formData.spotifyLink,
-        status: 'pending', // Entra como pendiente para que el admin lo apruebe
+        status: 'pending',
         donatedBy: user.uid,
         donatedByName: user.displayName || user.email.split('@')[0],
+        // Asignamos al tenedor correcto
+        heldBy: initialHolderId,
+        heldByName: initialHolderName,
         createdAt: new Date()
       });
       onBookAdded();
@@ -132,7 +155,7 @@ const DonateBook = ({ user, onBookAdded }) => {
           )}
         </div>
 
-        {/* FORMULARIO MANUAL / AUTOCOMPLETADO */}
+        {/* FORMULARIO */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1 mb-2 block">Título del libro</label>
@@ -173,7 +196,6 @@ const DonateBook = ({ user, onBookAdded }) => {
             </div>
           </div>
 
-          {/* NUEVO CAMPO: LINK DE SPOTIFY */}
           <div className="pt-2">
             <label className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1 mb-2">
                Link Podcast Spotify (Opcional)
@@ -189,6 +211,45 @@ const DonateBook = ({ user, onBookAdded }) => {
               />
             </div>
           </div>
+
+          {/* NUEVO: SELECCIÓN DE TENENCIA INICIAL */}
+          {sedeUser && (
+            <div className="pt-2">
+              <label className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1 mb-2">
+                ¿Dónde estará este libro?
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFormData({...formData, deliverToSede: false})}
+                  className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all border ${
+                    !formData.deliverToSede 
+                      ? 'bg-purple-100 border-purple-200 text-purple-900 shadow-sm' 
+                      : 'bg-white border-gray-100 text-gray-400'
+                  }`}
+                >
+                  Me lo quedo yo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({...formData, deliverToSede: true})}
+                  className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all border flex items-center justify-center gap-2 ${
+                    formData.deliverToSede 
+                      ? 'bg-purple-100 border-purple-200 text-purple-900 shadow-sm' 
+                      : 'bg-white border-gray-100 text-gray-400'
+                  }`}
+                >
+                  <MapPin size={14} />
+                  Entregar en Sede
+                </button>
+              </div>
+              {formData.deliverToSede && (
+                <p className="text-[10px] text-gray-500 mt-2 ml-1">
+                  Recuerda llevarlo a la Sede Central ({sedeUser.displayName}) para que esté disponible.
+                </p>
+              )}
+            </div>
+          )}
 
           <button 
             type="submit"
