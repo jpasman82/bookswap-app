@@ -4,7 +4,7 @@ import { collection, getDocs, query, orderBy, doc, runTransaction, onSnapshot, d
 import BookCard from '../components/BookCard';
 import BookDetailsModal from '../components/BookDetailsModal';
 import EditBookModal from '../components/EditBookModal'; 
-import { Search, Coins } from 'lucide-react';
+import { Search, Coins, Headphones, Clock, TrendingUp } from 'lucide-react';
 
 const Library = ({ user, dbUser }) => {
   const [books, setBooks] = useState([]);
@@ -14,8 +14,13 @@ const Library = ({ user, dbUser }) => {
   const [editingBook, setEditingBook] = useState(null);
   const [sedeUser, setSedeUser] = useState(null);
 
-  // Variable maestra para saber si el usuario activo es administrador
+  const [podcastOnly, setPodcastOnly] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState('Todas');
+  const [sortBy, setSortBy] = useState('newest');
+  const [showSortMenu, setShowSortMenu] = useState(false);
+
   const isAdmin = dbUser?.role === 'admin';
+  const categories = ['Todas', 'Economía', 'Filosofía', 'Política', 'Historia', 'Ficción', 'Desarrollo Personal', 'Negocios'];
 
   useEffect(() => {
     if (!user) return;
@@ -141,11 +146,40 @@ const Library = ({ user, dbUser }) => {
     }
   };
 
-  const filteredBooks = books.filter(b => b.title.toLowerCase().includes(searchTerm.toLowerCase()));
+  let processedBooks = [...books];
+
+  if (searchTerm) {
+    const lowerTerm = searchTerm.toLowerCase();
+    processedBooks = processedBooks.filter(b => 
+      b.title?.toLowerCase().includes(lowerTerm) || 
+      b.author?.toLowerCase().includes(lowerTerm)
+    );
+  }
+
+  if (podcastOnly) {
+    processedBooks = processedBooks.filter(b => b.spotifyLink && b.spotifyLink.trim() !== '');
+  }
+
+  if (selectedCategory !== 'Todas') {
+    processedBooks = processedBooks.filter(b => b.category === selectedCategory);
+  }
+
+  processedBooks.sort((a, b) => {
+    if (sortBy === 'newest') {
+      const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(0);
+      const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(0);
+      return dateB - dateA;
+    } else if (sortBy === 'popular') {
+      const popA = a.history ? a.history.length : 0;
+      const popB = b.history ? b.history.length : 0;
+      return popB - popA;
+    }
+    return 0;
+  });
 
   return (
     <div className="pb-28">
-      <div className="bg-white px-5 py-6 sticky top-0 z-20 shadow-sm border-b border-gray-50">
+      <div className="bg-white px-5 pt-6 pb-2 sticky top-0 z-20 shadow-sm border-b border-gray-50">
         <div className="flex justify-between items-end mb-6">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-purple-900 mb-1">Explorar</p>
@@ -156,30 +190,96 @@ const Library = ({ user, dbUser }) => {
             <span className="font-black text-yellow-950 text-sm">{userCredits > 0 ? 1 : 0}</span>
           </div>
         </div>
-        <div className="relative">
-          <input type="text" placeholder="Buscar..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 bg-gray-100 rounded-2xl text-sm font-bold placeholder-gray-400 outline-none focus:bg-white focus:ring-2 focus:ring-purple-900 transition-all shadow-inner" />
-          <Search size={20} className="absolute left-4 top-4 text-gray-300" />
+        
+        <div className="flex gap-2 mb-4">
+          <div className="relative flex-1">
+            <input 
+              type="text" 
+              placeholder="Buscar título o autor..." 
+              value={searchTerm} 
+              onChange={(e) => setSearchTerm(e.target.value)} 
+              className="w-full pl-12 pr-4 py-4 bg-gray-100 rounded-2xl text-sm font-bold placeholder-gray-400 outline-none focus:bg-white focus:ring-2 focus:ring-purple-900 transition-all shadow-inner" 
+            />
+            <Search size={20} className="absolute left-4 top-4 text-gray-400" />
+          </div>
+          
+          <div className="relative shrink-0">
+            <button 
+              onClick={() => setShowSortMenu(!showSortMenu)}
+              className="bg-gray-100 text-purple-900 p-4 rounded-2xl flex items-center justify-center active:scale-95 transition-all shadow-inner hover:bg-gray-200"
+            >
+              {sortBy === 'newest' ? <Clock size={20} /> : <TrendingUp size={20} />}
+            </button>
+            
+            {showSortMenu && (
+              <div className="absolute right-0 top-14 w-48 bg-white border border-gray-100 rounded-2xl shadow-xl overflow-hidden z-50">
+                <button 
+                  onClick={() => { setSortBy('newest'); setShowSortMenu(false); }}
+                  className={`w-full text-left px-4 py-3 text-sm font-bold flex items-center gap-2 ${sortBy === 'newest' ? 'bg-purple-50 text-purple-900' : 'text-gray-600 hover:bg-gray-50'}`}
+                >
+                  <Clock size={16} /> Más Recientes
+                </button>
+                <button 
+                  onClick={() => { setSortBy('popular'); setShowSortMenu(false); }}
+                  className={`w-full text-left px-4 py-3 text-sm font-bold flex items-center gap-2 border-t border-gray-50 ${sortBy === 'popular' ? 'bg-purple-50 text-purple-900' : 'text-gray-600 hover:bg-gray-50'}`}
+                >
+                  <TrendingUp size={16} /> Más Leídos
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+          <button
+            onClick={() => setPodcastOnly(!podcastOnly)}
+            className={`shrink-0 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-2 transition-colors border ${
+              podcastOnly ? 'bg-purple-900 text-white border-purple-900 shadow-md shadow-purple-200' : 'bg-white text-gray-400 border-gray-100'
+            }`}
+          >
+            <Headphones size={14} /> Podcast
+          </button>
+          
+          <div className="w-px h-8 bg-gray-200 shrink-0 mx-1 self-center"></div>
+
+          {categories.map(cat => (
+            <button
+              key={cat}
+              onClick={() => setSelectedCategory(cat)}
+              className={`shrink-0 px-4 py-2 rounded-xl text-xs transition-colors border ${
+                selectedCategory === cat ? 'bg-purple-100 text-purple-900 font-black border-purple-200' : 'bg-white text-gray-400 font-bold border-gray-100'
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
         </div>
       </div>
 
       <div className="px-5 mt-6 flex flex-col gap-6">
-        {filteredBooks.map(book => (
-          <BookCard 
-            key={book.id} 
-            book={book} 
-            userId={user.uid}
-            sedeUser={sedeUser}
-            isAdmin={isAdmin} 
-            onReserve={() => handleReserve(book.id)}
-            onOpenDetails={() => setSelectedBook(book)}
-            onAuthorize={() => handleAuthorize(book)}
-            onDelete={() => handleDelete(book.id)}
-            onEdit={() => setEditingBook(book)}
-            onWaitlist={() => handleWaitlist(book.id)}
-            onRemoveWaitlist={() => handleRemoveWaitlist(book.id)}
-            disabled={userCredits <= 0} 
-          />
-        ))}
+        {processedBooks.length === 0 ? (
+          <div className="text-center py-10">
+            <p className="text-gray-400 font-bold">No se encontraron libros con estos filtros.</p>
+          </div>
+        ) : (
+          processedBooks.map(book => (
+            <BookCard 
+              key={book.id} 
+              book={book} 
+              userId={user.uid}
+              sedeUser={sedeUser}
+              isAdmin={isAdmin} 
+              onReserve={() => handleReserve(book.id)}
+              onOpenDetails={() => setSelectedBook(book)}
+              onAuthorize={() => handleAuthorize(book)}
+              onDelete={() => handleDelete(book.id)}
+              onEdit={() => setEditingBook(book)}
+              onWaitlist={() => handleWaitlist(book.id)}
+              onRemoveWaitlist={() => handleRemoveWaitlist(book.id)}
+              disabled={userCredits <= 0} 
+            />
+          ))
+        )}
       </div>
 
       <BookDetailsModal 
