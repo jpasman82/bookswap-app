@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase/config';
 import { collection, query, where, getDocs, doc, updateDoc, onSnapshot, deleteDoc, getDoc, arrayRemove, arrayUnion } from 'firebase/firestore';
-import { BookOpen, Bookmark, Building, XCircle, LibraryBig, Phone, Clock, Send, ShieldAlert, CheckCircle, Inbox, Check, ArrowRightLeft } from 'lucide-react';
+import { BookOpen, Bookmark, Building, XCircle, LibraryBig, Phone, Clock, Send, ShieldAlert, CheckCircle, Inbox, Check, ArrowRightLeft, Users, UserX } from 'lucide-react'; // <-- Agregados Users y UserX
 
 const Dashboard = ({ user, dbUser }) => {
   const [stats, setStats] = useState({ donated: 0 });
@@ -39,7 +39,6 @@ const Dashboard = ({ user, dbUser }) => {
     const currentSede = await getSedeHelper();
 
     for (let book of heldBooks) {
-      // Si el libro está disponible, NO es del donante original, y pasaron 10 días
       if (book.status === 'available' && book.heldBy !== book.donatedBy) {
         const daysHeld = getDaysHeld(book.assignedAt || book.createdAt);
         if (daysHeld > 10) {
@@ -101,7 +100,6 @@ const Dashboard = ({ user, dbUser }) => {
       const heldSnapshot = await getDocs(heldQuery);
       const held = heldSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
 
-      // Revisamos vencimientos. Si hubo auto-transferencias, cortamos y volvemos a llamar a la función para traer datos frescos.
       const didAutoTransfer = await processExpirations(held);
       if (didAutoTransfer) {
         fetchPersonalData();
@@ -405,6 +403,19 @@ const Dashboard = ({ user, dbUser }) => {
       setAllUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (error) {
       alert("Error al aprobar usuario.");
+    }
+  };
+
+  // NUEVA FUNCIÓN: ELIMINAR ACCESO DE USUARIO
+  const deleteUserAccess = async (uid, userName) => {
+    if (!window.confirm(`¿Estás seguro que deseas eliminar el acceso de ${userName}? Perderá su cuenta y deberá registrarse nuevamente.`)) return;
+    try {
+      await deleteDoc(doc(db, "users", uid));
+      // Actualizamos la lista local sin necesidad de hacer otro fetch
+      setAllUsers(prev => prev.filter(u => u.id !== uid));
+      alert(`Acceso eliminado para ${userName}.`);
+    } catch (error) {
+      alert("Error al eliminar el usuario.");
     }
   };
 
@@ -788,6 +799,47 @@ const Dashboard = ({ user, dbUser }) => {
                         Aprobar Admin
                       </button>
                     </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* NUEVA SECCIÓN: COMUNIDAD ACTIVA */}
+          <div className="bg-white p-6 rounded-[35px] shadow-sm border border-gray-100">
+            <div className="flex items-center gap-2 mb-4">
+              <Users size={20} className="text-purple-900" />
+              <h3 className="text-sm font-black tracking-widest uppercase text-gray-400">Comunidad Activa ({allUsers.length})</h3>
+            </div>
+
+            {allUsers.length === 0 ? (
+              <p className="text-gray-400 text-sm font-medium text-center py-6 bg-gray-50 rounded-2xl">
+                No hay usuarios activos.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {allUsers.map(u => (
+                  <div key={u.id} className="bg-gray-50 p-3 rounded-2xl border border-gray-100 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 overflow-hidden">
+                      <img src={u.photoUrl || `https://ui-avatars.com/api/?name=${u.displayName}`} className="w-10 h-10 rounded-full border border-gray-200 object-cover shrink-0" alt="" />
+                      <div className="truncate">
+                        <p className="text-sm font-black text-gray-900 truncate">
+                          {u.displayName} {u.role === 'admin' && <span className="text-[9px] bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded ml-1 uppercase">Admin</span>}
+                        </p>
+                        <p className="text-[10px] text-gray-500 truncate font-medium">{u.email}</p>
+                      </div>
+                    </div>
+                    
+                    {/* Evitamos que el admin se borre a sí mismo por accidente */}
+                    {u.id !== user.uid && (
+                      <button 
+                        onClick={() => deleteUserAccess(u.id, u.displayName)} 
+                        title="Revocar acceso"
+                        className="p-2.5 bg-white border border-red-100 text-red-400 hover:text-white hover:bg-red-500 rounded-xl transition-colors shrink-0 shadow-sm active:scale-90"
+                      >
+                        <UserX size={16} />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
