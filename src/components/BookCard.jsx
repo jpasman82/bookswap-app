@@ -61,7 +61,7 @@ const BookCard = ({ book, userId, sedeUser, isAdmin, onReserve, onOpenDetails, o
               onClick={(e) => e.stopPropagation()}
               className="mt-2 inline-flex items-center gap-1.5 text-[10px] font-black text-[#1DB954] uppercase tracking-widest bg-green-50 px-3 py-1.5 rounded-lg w-max"
             >
-              <Headphones size={12} /> Escuchar Resumen
+              <Headphones size={12} /> Escuchar Podcast
             </a>
           )}
         </div>
